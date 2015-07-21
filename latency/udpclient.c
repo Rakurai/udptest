@@ -158,12 +158,14 @@ int main(int argc, const char *argv[])
 	int polling = 0;
 	int busy_poll = 0;
 	int packet_timestamp = 0;
+	int test_len = 1;
 
 	static struct option long_options[] = {
 		{"src-port", required_argument, 0, 's'},
 		{"polling", no_argument, 0, 'p'},
 		{"busy-poll", required_argument, 0, 'b'},
 		{"timestamp", no_argument, 0, 't'},
+		{"test-length", required_argument, 0, 'l'},
 		{NULL, 0, 0, 0}};
 	const char *optstring = optstring_from_long_options(long_options);
 
@@ -192,7 +194,9 @@ int main(int argc, const char *argv[])
 		case 't':
 			packet_timestamp = 1;
 			break;
-
+		case 'l':
+			test_len = atoi(optarg);
+			break;
 		default:
 			FATAL("Unknown option %c: %s", arg, argv[optind]);
 		}
@@ -232,7 +236,7 @@ int main(int argc, const char *argv[])
 	}
 
 	while (1) {
-		struct timeval timeout = NSEC_TIMEVAL(MSEC_NSEC(1000UL));
+		struct timeval timeout = NSEC_TIMEVAL(MSEC_NSEC(1000UL*test_len));
 		while (1) {
 			int r = select(0, NULL, NULL, NULL, &timeout);
 			if (r != 0) {
@@ -246,22 +250,23 @@ int main(int argc, const char *argv[])
 		for (t = 0; t < thread_num; t++) {
 			struct state *state = &array_of_states[t];
 
-			uint64_t pps;
+			uint64_t count;
 			double avg, stddev;
 			double avg_packet, stddev_packet;
 
 			pthread_spin_lock(&state->lock);
-			stddev_get(&state->stddev, &pps, &avg, &stddev);
+			stddev_get(&state->stddev, &count, &avg, &stddev);
 			int min = state->stddev.min;
+			int max = state->stddev.max;
 			stddev_get(&state->stddev_packet, NULL, &avg_packet,
 				   &stddev_packet);
 			stddev_init(&state->stddev);
 			stddev_init(&state->stddev_packet);
 			pthread_spin_unlock(&state->lock);
 
-			printf("pps=%6lu avg=%7.3fus dev=%7.3fus min=%6.3fus  ",
-			       pps, avg / 1000., stddev / 1000.,
-			       (double)min / 1000.);
+			printf("pps=%6lu avg=%7.3fus dev=%7.3fus min=%6.3fus max=%6.3fus ",
+			       count/test_len, avg / 1000., stddev / 1000.,
+			       (double)min / 1000., (double)max / 1000.);
 			if (packet_timestamp) {
 				printf("(packet=%5.3fus/%5.3f)  ",
 				       avg_packet / 1000.,

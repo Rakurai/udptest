@@ -10,18 +10,23 @@
 
 struct stddev
 {
-	int min;
+	int min, max;
 	int64_t sum;
 	uint64_t sum_sq;
 	uint64_t count;
+	double mean;
+	double m2;
 };
 
 static inline struct stddev *stddev_init(struct stddev *sd)
 {
 	sd->min = INT_MAX;
+	sd->max = 0;
 	sd->sum = 0;
 	sd->sum_sq = 0;
 	sd->count = 0;
+	sd->mean = 0.0;
+	sd->m2 = 0.0;
 	return sd;
 }
 
@@ -35,13 +40,19 @@ static inline void stddev_free(struct stddev *sd) { free(sd); }
 
 static inline void stddev_add(struct stddev *sd, int value)
 {
-printf("adding value %f", value/1000.0);
 	sd->count++;
-	sd->sum += value;
-	sd->sum_sq += value * value;
+//	sd->sum += value;
+//	sd->sum_sq += value * value;
 	if (value < sd->min) {
 		sd->min = value;
 	}
+	if (value > sd->max) {
+		sd->max = value;
+	}
+
+	double delta = value - sd->mean;
+	sd->mean = sd->mean + delta / sd->count;
+	sd->m2 = sd->m2 + delta * (value - sd->mean);
 }
 
 static inline void stddev_remove(struct stddev *sd, int old_value)
@@ -67,14 +78,16 @@ static inline void stddev_get(struct stddev *sd, uint64_t *counter_ptr,
 
 	if (avg_ptr) {
 		if (sd->count != 0) {
-			avg = sum / count;
+//			avg = sum / count;
+			avg = sd->mean;
 		}
 	}
 
 	if (stddev_ptr) {
 		if (sd->count > 2) {
-			double variance =
-				(sum_sq - (sum * (sum / count))) / count;
+//			double variance =
+//				(sum_sq - (sum * sum) / count) / (count-1);
+			double variance = sd->m2 / (count-1);
 			dev = sqrt(fabs(variance));
 		}
 	}
