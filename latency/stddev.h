@@ -35,6 +35,7 @@ static inline void stddev_free(struct stddev *sd) { free(sd); }
 
 static inline void stddev_add(struct stddev *sd, int value)
 {
+printf("adding value %f", value/1000.0);
 	sd->count++;
 	sd->sum += value;
 	sd->sum_sq += value * value;
