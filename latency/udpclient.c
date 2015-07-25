@@ -22,6 +22,7 @@ struct state
 	int src_port;
 	int polling;
 	int busy_poll;
+	int packet_size;
 
 	pthread_spinlock_t lock;
 	struct stddev stddev;
@@ -30,6 +31,7 @@ struct state
 
 long gettid() { return syscall(SYS_gettid); }
 
+#define MTU_SIZE (2048 - 64 * 2)
 #define PKT_SIZE 32
 
 void thread_loop(void *userdata)
@@ -38,7 +40,12 @@ void thread_loop(void *userdata)
 
 	pthread_spin_init(&state->lock, PTHREAD_PROCESS_PRIVATE);
 
-	char send_buf[PKT_SIZE], recv_buf[PKT_SIZE];
+	pthread_spin_lock(&state->lock);
+	stddev_init(&state->stddev);
+	stddev_init(&state->stddev_packet);
+	pthread_spin_unlock(&state->lock);
+
+	char send_buf[MTU_SIZE], recv_buf[MTU_SIZE];
 	struct msghdr *msg = calloc(2, sizeof(struct msghdr));
 	struct iovec *iovec = calloc(2, sizeof(struct iovec));
 	int i;
@@ -46,6 +53,7 @@ void thread_loop(void *userdata)
 		msg[i].msg_iov = &iovec[i];
 		msg[i].msg_iovlen = 1;
 		iovec[i].iov_len = sizeof(send_buf);
+		iovec[i].iov_len = state->packet_size;
 	}
 
 	iovec[0].iov_base = send_buf;
@@ -56,6 +64,7 @@ void thread_loop(void *userdata)
 	msg[1].msg_controllen = sizeof(pktinfo);
 
 	uint64_t packet_no = 0;
+
 	while (1) {
 		int fd = net_connect_udp(state->target_addr, state->src_port,
 					 state->busy_poll);
@@ -69,7 +78,7 @@ void thread_loop(void *userdata)
 
 		for (;; packet_no++) {
 			memset(send_buf, 0, sizeof(send_buf));
-			snprintf(send_buf, sizeof(send_buf), "%i-%li-%lu",
+			snprintf(send_buf, state->packet_size, "%i-%li-%lu",
 				 getpid(), gettid(), packet_no);
 
 			uint64_t t0 = realtime_now(), t1 = 0, tp = 0;
@@ -159,9 +168,11 @@ int main(int argc, const char *argv[])
 	int busy_poll = 0;
 	int packet_timestamp = 0;
 	int test_len = 1;
+	int packet_size=PKT_SIZE;
 
 	static struct option long_options[] = {
 		{"src-port", required_argument, 0, 's'},
+		{"packet-size", required_argument, 0, 'm'},
 		{"polling", no_argument, 0, 'p'},
 		{"busy-poll", required_argument, 0, 'b'},
 		{"timestamp", no_argument, 0, 't'},
@@ -197,6 +208,9 @@ int main(int argc, const char *argv[])
 		case 'l':
 			test_len = atoi(optarg);
 			break;
+		case 'm':
+			packet_size=atoi(optarg);
+			break;
 		default:
 			FATAL("Unknown option %c: %s", arg, argv[optind]);
 		}
@@ -229,6 +243,7 @@ int main(int argc, const char *argv[])
 		state->target_addr = &target_addrs[t];
 		state->polling = polling;
 		state->busy_poll = busy_poll;
+		state->packet_size = packet_size;
 		if (base_src_port > 0) {
 			state->src_port = base_src_port + t;
 		}
@@ -264,7 +279,7 @@ int main(int argc, const char *argv[])
 			stddev_init(&state->stddev_packet);
 			pthread_spin_unlock(&state->lock);
 
-			printf("pps=%6lu avg=%7.3fus dev=%7.3fus min=%6.3fus max=%6.3fus ",
+			printf("pps=%6lu avg=%7.3f dev=%7.3f min=%6.3f max=%6.3f",
 			       count/test_len, avg / 1000., stddev / 1000.,
 			       (double)min / 1000., (double)max / 1000.);
 			if (packet_timestamp) {

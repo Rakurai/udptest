@@ -10,7 +10,7 @@
 
 struct stddev
 {
-	int min, max;
+	unsigned int min, max;
 	int64_t sum;
 	uint64_t sum_sq;
 	uint64_t count;
